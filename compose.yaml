@@ -3,35 +3,34 @@ services:
     image: "traefik"
     restart: always
     command:
-      - "--api.insecure=true"  # Enables dashboard at http://<public-ip>:8080 (add port 8080 to Lightsail firewall if needed)
+      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"  # Keep HTTP only
-      # Removed: HTTPS entrypoint, redirect, and certresolver lines (no domain for TLS)
+      - "--entrypoints.web.address=:80"
     ports:
-      - "80:80"  # Expose HTTP only
-      # Removed: 443 (no HTTPS)
-      - "8080:8080"  # Optional: Expose dashboard for debugging (add to Lightsail firewall)
+      - "80:80"
+      - "8080:8080"
     volumes:
-      - traefik_data:/letsencrypt  # Keep, though unused without TLS
+      - traefik_data:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
     restart: always
-    ports:
-      - "127.0.0.1:5678:5678"  # Keep localhost binding; Traefik proxies externally
+    # Traefik communicates with n8n via the internal Docker network.
+    # No direct port exposure is needed here for security.
     labels:
-      - traefik.enable=true
-      - traefik.http.routers.n8n.rule=PathPrefix(`/`)  # Changed: Use PathPrefix instead of Host() for IP access (or use Host(`<public-ip>`) if you want to hardcode it)
-      - traefik.http.routers.n8n.entrypoints=web  # Changed: Use HTTP entrypoint only
-      # Removed: All TLS/cert/middlewares (no HTTPS)
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.n8n.entrypoints=web"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
     environment:
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_PORT=5678
       - N8N_RUNNERS_ENABLED=true
       - NODE_ENV=production
-      - WEBHOOK_URL=http://<public-ip>/  # Changed: Use HTTP and your public IP (no subdomain/domain)
+      - WEBHOOK_URL=http://98.80.206.197/
+      - N8N_PROTOCOL=http
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - TZ=${GENERIC_TIMEZONE}
     volumes:
