@@ -1,42 +1,132 @@
 services:
   traefik:
     image: "traefik"
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: "TraefikLogs"
+        awslogs-create-group: "true"
     restart: always
     command:
       - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.mytlschallenge.acme.tlschallenge=true"
+      - "--certificatesresolvers.mytlschallenge.acme.email=${SSL_EMAIL}"
+      - "--certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json"
     ports:
       - "80:80"
-      - "8080:8080"
+      - "443:443"
     volumes:
       - traefik_data:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: "N8NLogs"
+        awslogs-create-group: "true"
     restart: always
-    # Traefik communicates with n8n via the internal Docker network.
-    # No direct port exposure is needed here for security.
+    ports:
+      - "127.0.0.1:5678:5678"
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.n8n.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.n8n.entrypoints=web"
-      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+      - traefik.enable=true
+      - traefik.http.routers.n8n.rule=Host(`${SUBDOMAIN}.${DOMAIN_NAME}`)
+      - traefik.http.routers.n8n.tls=true
+      - traefik.http.routers.n8n.entrypoints=web,websecure
+      - traefik.http.routers.n8n.tls.certresolver=mytlschallenge
+      - traefik.http.middlewares.n8n.headers.SSLRedirect=true
+      - traefik.http.middlewares.n8n.headers.STSSeconds=315360000
+      - traefik.http.middlewares.n8n.headers.browserXSSFilter=true
+      - traefik.http.middlewares.n8n.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.n8n.headers.forceSTSHeader=true
+      - traefik.http.middlewares.n8n.headers.SSLHost=${DOMAIN_NAME}
+      - traefik.http.middlewares.n8n.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.n8n.headers.STSPreload=true
+      - traefik.http.routers.n8n.middlewares=n8n@docker
     environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
       - N8N_PORT=5678
+      - N8N_PROTOCOL=https
       - N8N_RUNNERS_ENABLED=true
       - NODE_ENV=production
-      - WEBHOOK_URL=http://98.80.206.197/
-      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - TZ=${GENERIC_TIMEZONE}
-      - N8N_SECURE_COOKIE=false
     volumes:
       - n8n_data:/home/node/.n8n
       - ./local-files:/files
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:18
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: "DBLogs"
+        awslogs-create-group: "true"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - 5432:5432
+
+  databasus:
+    container_name: databasus
+    image: databasus/databasus:latest
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: "DatabasusLogs"
+        awslogs-create-group: "true"
+    ports:
+      - "127.0.0.1:4005:4005"
+    volumes:
+      - ./databasus-data:/databasus-data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.databasus.rule=Host(`databasus.${DOMAIN_NAME}`) || Host(`www.databasus.${DOMAIN_NAME}`)
+      - traefik.http.routers.databasus.tls=true
+      - traefik.http.routers.databasus.entrypoints=web,websecure
+      - traefik.http.routers.databasus.tls.certresolver=mytlschallenge
+      - traefik.http.middlewares.databasus.headers.SSLRedirect=true
+      - traefik.http.middlewares.databasus.headers.STSSeconds=315360000
+      - traefik.http.middlewares.databasus.headers.browserXSSFilter=true
+      - traefik.http.middlewares.databasus.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.databasus.headers.forceSTSHeader=true
+      - traefik.http.middlewares.databasus.headers.SSLHost=${DOMAIN_NAME}
+      - traefik.http.middlewares.databasus.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.databasus.headers.STSPreload=true
+      - traefik.http.routers.databasus.middlewares=databasus@docker
+      - traefik.http.services.databasus.loadbalancer.server.port=4005
+    restart: unless-stopped
 
 volumes:
   n8n_data:
