@@ -36,7 +36,7 @@ services:
         awslogs-create-group: "true"
     restart: always
     ports:
-      - "127.0.0.1:5678:5678"
+      - "5678:5678"
     labels:
       - traefik.enable=true
       - traefik.http.routers.n8n.rule=Host(`${SUBDOMAIN}.${DOMAIN_NAME}`)
@@ -107,7 +107,7 @@ services:
         awslogs-group: "DatabasusLogs"
         awslogs-create-group: "true"
     ports:
-      - "127.0.0.1:4005:4005"
+      - "4005:4005"
     volumes:
       - ./databasus-data:/databasus-data
     labels:
