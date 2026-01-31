@@ -22,9 +22,13 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - TZ=${GENERIC_TIMEZONE}
     volumes:
       - traefik_data:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
@@ -88,9 +92,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${GENERIC_TIMEZONE}
     volumes:
       - ./data:/var/lib/postgresql
       - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -112,6 +119,10 @@ services:
       - "4005:4005"
     volumes:
       - ./databasus-data:/databasus-data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=${GENERIC_TIMEZONE}
     labels:
       - traefik.enable=true
       - traefik.http.routers.databasus.rule=Host(`databasus.${DOMAIN_NAME}`) || Host(`www.databasus.${DOMAIN_NAME}`)
